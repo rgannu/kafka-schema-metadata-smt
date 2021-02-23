@@ -1,0 +1,263 @@
+buildscript {
+    apply from: "gradle/repositories.gradle"
+}
+
+plugins {
+    id 'maven-publish'
+}
+
+apply plugin: 'java'
+apply plugin: 'idea'
+apply plugin: 'jacoco'
+
+ext {
+    mavenUrl = project.hasProperty('mavenUrl') ? project.mavenUrl : ''
+    mavenUsername = project.hasProperty('mavenUsername') ? project.mavenUsername : ''
+    mavenPassword = project.hasProperty('mavenPassword') ? project.mavenPassword : ''
+    buildVersionFileName = "version.properties"
+    commitId = project.hasProperty('commitId') ? commitId : null
+
+    avroVersion = "1.10.0"
+    kafkaVersion = "2.5.0"
+    confluentVersion = "5.5.0"
+    camelKafkaConnectorVersion = "0.6.0"
+    jupiterVersion = "5.6.2"
+    assertjVersion = "3.16.0"
+    easymockVersion = '4.2'
+    wiremockVersion = '2.27.2'
+}
+
+def javaProjects() {
+    subprojects.findAll { new File(it.projectDir, 'src').directory }
+}
+
+logging.captureStandardOutput LogLevel.DEBUG
+
+artifacts {
+    archives jar
+}
+
+configure(javaProjects()) {
+    apply plugin: 'java'
+}
+
+dependencies {
+    implementation "org.slf4j:slf4j-api:1.7.30"
+    implementation "org.apache.avro:avro:${avroVersion}"
+    implementation "org.apache.kafka:connect-api:${kafkaVersion}"
+    implementation "org.apache.kafka:connect-transforms:${kafkaVersion}"
+    implementation "org.apache.camel.kafkaconnector:camel-kafka-connector:${camelKafkaConnectorVersion}"
+    implementation "io.confluent:kafka-schema-registry-client:${confluentVersion}"
+    implementation "io.confluent:kafka-avro-serializer:${confluentVersion}"
+    implementation "io.confluent:kafka-schema-serializer:${confluentVersion}"
+    implementation "io.confluent:kafka-connect-avro-data:${confluentVersion}"
+    implementation "io.confluent:kafka-connect-avro-converter:${confluentVersion}"
+
+    testImplementation "org.junit.jupiter:junit-jupiter:${jupiterVersion}"
+    testImplementation "org.assertj:assertj-core:${assertjVersion}"
+    testImplementation "org.easymock:easymock:${easymockVersion}"
+    testImplementation "com.github.tomakehurst:wiremock:${wiremockVersion}"
+}
+
+test {
+    useJUnitPlatform()
+}
+
+subprojects { subProject ->
+    subProject.group = rootProject.group
+    subProject.version = rootProject.version
+
+    apply from: "../gradle/repositories.gradle"
+
+    subProject.apply plugin: 'java'
+    subProject.apply plugin: 'eclipse'
+    subProject.apply plugin: 'idea'
+    subProject.apply plugin: 'jacoco'
+    subProject.apply plugin: 'maven-publish'
+
+    java {
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
+    }
+
+    subProject.tasks.withType(Test) {
+        // Assign all Java system properties from the command line to the Test task.
+        systemProperties System.properties
+        //BRANCH_NAME is provided by Jenkins
+        systemProperties['user.dir'] = workingDir
+        systemProperties.remove("java.endorsed.dirs")
+        systemProperties.remove("java.ext.dirs")
+        useJUnitPlatform()
+    }
+
+    uploadArchives {
+        repositories {
+            signing {
+                required { shouldSign }
+                sign configurations.archives
+
+                // To test locally, replace mavenUrl in ~/.gradle/gradle.properties to file://localhost/tmp/myRepo/
+                mavenDeployer {
+                    beforeDeployment { MavenDeployment deployment -> signing.signPom(deployment) }
+                    repository(url: "${mavenUrl}") {
+                        authentication(userName: "${mavenUsername}", password: "${mavenPassword}")
+                    }
+                    afterEvaluate {
+                        pom.artifactId = "${archivesBaseName}"
+                        pom.project {
+                            name 'Kafka Schema MetaData SMT'
+                            packaging 'jar'
+                            licenses {
+                                license {
+                                    name 'The Apache Software License, Version 2.0'
+                                    url 'https://www.apache.org/licenses/LICENSE-2.0.txt'
+                                    distribution 'repo'
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    jar {
+        from "$rootDir/LICENSE"
+    }
+
+    task srcJar(type: Jar) {
+        classifier = 'sources'
+        from "$rootDir/LICENSE"
+        from sourceSets.main.allSource
+    }
+
+    artifacts {
+        archives srcJar
+    }
+
+    if (!sourceSets.test.allSource.isEmpty()) {
+        task testJar(type: Jar) {
+            classifier = 'test'
+            from "$rootDir/LICENSE"
+            from sourceSets.test.output
+        }
+
+        task testSrcJar(type: Jar, dependsOn: testJar) {
+            classifier = 'test-sources'
+            from "$rootDir/LICENSE"
+            from sourceSets.test.allSource
+        }
+
+        artifacts {
+            archives testJar
+            archives testSrcJar
+        }
+    }
+
+
+}
+
+
+allprojects {
+    repositories {
+        jcenter()
+        mavenCentral()
+    }
+
+    apply plugin: 'java'
+    apply plugin: 'idea'
+    apply plugin: 'jacoco'
+    apply plugin: 'maven-publish'
+
+    configurations.all {
+        resolutionStrategy {
+            preferProjectModules()
+        }
+    }
+
+    test {
+        // Assign all Java system properties from the command line to the Test task.
+        systemProperties System.properties
+        systemProperties['user.dir'] = workingDir
+        systemProperties.remove("java.endorsed.dirs")
+        systemProperties.remove("java.ext.dirs")
+        useJUnitPlatform()
+
+        finalizedBy jacocoTestReport
+    }
+
+    jacocoTestReport {
+        getExecutionData().setFrom(fileTree(project.buildDir).include("/jacoco/*.exec"))
+        reports {
+            xml.enabled true
+        }
+    }
+
+    publishing {
+        publications {
+            mavenJava(MavenPublication) {
+                from components.java
+                suppressAllPomMetadataWarnings()
+            }
+        }
+
+        /*repositories {
+            maven {
+                name = 'unifly'
+                def releasesRepoUrl = artifactoryURL + "/artifactory/libs-release-local"
+                def snapshotsRepoUrl = artifactoryURL + "/artifactory/libs-snapshot-local"
+                url = rootProject.version.endsWith('SNAPSHOT') ? snapshotsRepoUrl : releasesRepoUrl
+                credentials(PasswordCredentials)
+            }
+        }*/
+    }
+
+
+}
+
+task determineCommitId {
+    def takeFromHash = 16
+    if (commitId) {
+        commitId = commitId.take(takeFromHash)
+    } else if (file("$rootDir/.git/HEAD").exists()) {
+        def headRef = file("$rootDir/.git/HEAD").text
+        if (headRef.contains('ref: ')) {
+            headRef = headRef.replaceAll('ref: ', '').trim()
+            if (file("$rootDir/.git/$headRef").exists()) {
+                commitId = file("$rootDir/.git/$headRef").text.trim().take(takeFromHash)
+            }
+        } else {
+            commitId = headRef.trim().take(takeFromHash)
+        }
+    } else {
+        commitId = "unknown"
+    }
+}
+
+task createVersionFile(dependsOn: determineCommitId) {
+    ext.receiptFile = file("$buildDir/$buildVersionFileName")
+    outputs.file receiptFile
+    outputs.upToDateWhen { false }
+    doLast {
+        def data = [
+                commitId: commitId,
+                version: version,
+        ]
+
+        receiptFile.parentFile.mkdirs()
+        def content = data.entrySet().collect { "$it.key=$it.value" }.sort().join("\n")
+        receiptFile.setText(content, "ISO-8859-1")
+    }
+}
+
+jar {
+    dependsOn createVersionFile
+    from("$buildDir") {
+        include "$buildVersionFileName"
+    }
+    manifest {
+        attributes(
+                'Version': "${archiveVersion}"
+        )
+    }
+}

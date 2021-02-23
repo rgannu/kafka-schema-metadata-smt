@@ -1,0 +1,11 @@
+.idea
+.classpath
+.factorypath
+.project
+.settings
+.envrc
+*.iml
+/.metadata/
+bin
+.gradle
+build/
