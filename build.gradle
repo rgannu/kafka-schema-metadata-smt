@@ -4,6 +4,8 @@ buildscript {
 
 plugins {
     id 'maven-publish'
+    id "org.sonarqube" version "2.8"
+    id 'net.researchgate.release' version '2.8.1'
 }
 
 apply plugin: 'java'
@@ -11,9 +13,9 @@ apply plugin: 'idea'
 apply plugin: 'jacoco'
 
 ext {
-    mavenUrl = project.hasProperty('mavenUrl') ? project.mavenUrl : ''
-    mavenUsername = project.hasProperty('mavenUsername') ? project.mavenUsername : ''
-    mavenPassword = project.hasProperty('mavenPassword') ? project.mavenPassword : ''
+    artifactoryURL = project.hasProperty('artifactoryURL') ? project.artifactoryURL : ''
+    artifactoryUser = project.hasProperty('artifactoryUser') ? project.artifactoryUser : ''
+    artifactoryPassword = project.hasProperty('artifactoryPassword') ? project.artifactoryPassword : ''
     buildVersionFileName = "version.properties"
     commitId = project.hasProperty('commitId') ? commitId : null
 
@@ -37,129 +39,11 @@ artifacts {
     archives jar
 }
 
-configure(javaProjects()) {
-    apply plugin: 'java'
-}
-
-dependencies {
-    implementation "org.slf4j:slf4j-api:1.7.30"
-    implementation "org.apache.avro:avro:${avroVersion}"
-    implementation "org.apache.kafka:connect-api:${kafkaVersion}"
-    implementation "org.apache.kafka:connect-transforms:${kafkaVersion}"
-    implementation "org.apache.camel.kafkaconnector:camel-kafka-connector:${camelKafkaConnectorVersion}"
-    implementation "io.confluent:kafka-schema-registry-client:${confluentVersion}"
-    implementation "io.confluent:kafka-avro-serializer:${confluentVersion}"
-    implementation "io.confluent:kafka-schema-serializer:${confluentVersion}"
-    implementation "io.confluent:kafka-connect-avro-data:${confluentVersion}"
-    implementation "io.confluent:kafka-connect-avro-converter:${confluentVersion}"
-
-    testImplementation "org.junit.jupiter:junit-jupiter:${jupiterVersion}"
-    testImplementation "org.assertj:assertj-core:${assertjVersion}"
-    testImplementation "org.easymock:easymock:${easymockVersion}"
-    testImplementation "com.github.tomakehurst:wiremock:${wiremockVersion}"
-}
-
-test {
-    useJUnitPlatform()
-}
-
-subprojects { subProject ->
-    subProject.group = rootProject.group
-    subProject.version = rootProject.version
-
-    apply from: "../gradle/repositories.gradle"
-
-    subProject.apply plugin: 'java'
-    subProject.apply plugin: 'eclipse'
-    subProject.apply plugin: 'idea'
-    subProject.apply plugin: 'jacoco'
-    subProject.apply plugin: 'maven-publish'
-
-    java {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
-    }
-
-    subProject.tasks.withType(Test) {
-        // Assign all Java system properties from the command line to the Test task.
-        systemProperties System.properties
-        //BRANCH_NAME is provided by Jenkins
-        systemProperties['user.dir'] = workingDir
-        systemProperties.remove("java.endorsed.dirs")
-        systemProperties.remove("java.ext.dirs")
-        useJUnitPlatform()
-    }
-
-    uploadArchives {
-        repositories {
-            signing {
-                required { shouldSign }
-                sign configurations.archives
-
-                // To test locally, replace mavenUrl in ~/.gradle/gradle.properties to file://localhost/tmp/myRepo/
-                mavenDeployer {
-                    beforeDeployment { MavenDeployment deployment -> signing.signPom(deployment) }
-                    repository(url: "${mavenUrl}") {
-                        authentication(userName: "${mavenUsername}", password: "${mavenPassword}")
-                    }
-                    afterEvaluate {
-                        pom.artifactId = "${archivesBaseName}"
-                        pom.project {
-                            name 'Kafka Schema MetaData SMT'
-                            packaging 'jar'
-                            licenses {
-                                license {
-                                    name 'The Apache Software License, Version 2.0'
-                                    url 'https://www.apache.org/licenses/LICENSE-2.0.txt'
-                                    distribution 'repo'
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    jar {
-        from "$rootDir/LICENSE"
-    }
-
-    task srcJar(type: Jar) {
-        classifier = 'sources'
-        from "$rootDir/LICENSE"
-        from sourceSets.main.allSource
-    }
-
-    artifacts {
-        archives srcJar
-    }
-
-    if (!sourceSets.test.allSource.isEmpty()) {
-        task testJar(type: Jar) {
-            classifier = 'test'
-            from "$rootDir/LICENSE"
-            from sourceSets.test.output
-        }
-
-        task testSrcJar(type: Jar, dependsOn: testJar) {
-            classifier = 'test-sources'
-            from "$rootDir/LICENSE"
-            from sourceSets.test.allSource
-        }
-
-        artifacts {
-            archives testJar
-            archives testSrcJar
-        }
-    }
-
-
-}
-
-
 allprojects {
     repositories {
+        maven {
+            url "${artifactoryURL}"
+        }
         jcenter()
         mavenCentral()
     }
@@ -167,6 +51,7 @@ allprojects {
     apply plugin: 'java'
     apply plugin: 'idea'
     apply plugin: 'jacoco'
+    apply plugin: 'org.sonarqube'
     apply plugin: 'maven-publish'
 
     configurations.all {
@@ -201,7 +86,7 @@ allprojects {
             }
         }
 
-        /*repositories {
+        repositories {
             maven {
                 name = 'unifly'
                 def releasesRepoUrl = artifactoryURL + "/artifactory/libs-release-local"
@@ -209,10 +94,34 @@ allprojects {
                 url = rootProject.version.endsWith('SNAPSHOT') ? snapshotsRepoUrl : releasesRepoUrl
                 credentials(PasswordCredentials)
             }
-        }*/
+        }
     }
+}
 
+configure(javaProjects()) {
+    apply plugin: 'java'
+}
 
+dependencies {
+    implementation "org.slf4j:slf4j-api:1.7.30"
+    implementation "org.apache.avro:avro:${avroVersion}"
+    implementation "org.apache.kafka:connect-api:${kafkaVersion}"
+    implementation "org.apache.kafka:connect-transforms:${kafkaVersion}"
+    implementation "org.apache.camel.kafkaconnector:camel-kafka-connector:${camelKafkaConnectorVersion}"
+    implementation "io.confluent:kafka-schema-registry-client:${confluentVersion}"
+    implementation "io.confluent:kafka-avro-serializer:${confluentVersion}"
+    implementation "io.confluent:kafka-schema-serializer:${confluentVersion}"
+    implementation "io.confluent:kafka-connect-avro-data:${confluentVersion}"
+    implementation "io.confluent:kafka-connect-avro-converter:${confluentVersion}"
+
+    testImplementation "org.junit.jupiter:junit-jupiter:${jupiterVersion}"
+    testImplementation "org.assertj:assertj-core:${assertjVersion}"
+    testImplementation "org.easymock:easymock:${easymockVersion}"
+    testImplementation "com.github.tomakehurst:wiremock:${wiremockVersion}"
+}
+
+test {
+    useJUnitPlatform()
 }
 
 task determineCommitId {
@@ -259,5 +168,84 @@ jar {
         attributes(
                 'Version': "${archiveVersion}"
         )
+    }
+}
+
+subprojects { subProject ->
+    subProject.group = rootProject.group
+    subProject.version = rootProject.version
+
+    apply from: "../gradle/repositories.gradle"
+
+    subProject.apply plugin: 'java'
+    subProject.apply plugin: 'eclipse'
+    subProject.apply plugin: 'idea'
+    subProject.apply plugin: 'jacoco'
+    subProject.apply plugin: 'org.sonarqube'
+    subProject.apply plugin: 'maven-publish'
+
+    java {
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
+    }
+
+    subProject.tasks.withType(Test) {
+        // Assign all Java system properties from the command line to the Test task.
+        systemProperties System.properties
+        //BRANCH_NAME is provided by Jenkins
+        systemProperties['user.dir'] = workingDir
+        systemProperties.remove("java.endorsed.dirs")
+        systemProperties.remove("java.ext.dirs")
+        useJUnitPlatform()
+
+        finalizedBy jacocoTestReport
+    }
+
+    jacocoTestReport {
+        getExecutionData().setFrom(fileTree(project.buildDir).include("/jacoco/*.exec"))
+        reports {
+            xml.enabled true
+        }
+    }
+
+    sonarqube {
+        properties {
+            property "sonar.coverage.jacoco.xmlReportPaths", "${project.buildDir}/reports/jacoco/test/jacocoTestReport.xml"
+            property "sonar.sourceEncoding", "UTF-8"
+        }
+    }
+
+
+    jar {
+        from "$rootDir/LICENSE"
+    }
+
+    task srcJar(type: Jar) {
+        classifier = 'sources'
+        from "$rootDir/LICENSE"
+        from sourceSets.main.allSource
+    }
+
+    artifacts {
+        archives srcJar
+    }
+
+    if (!sourceSets.test.allSource.isEmpty()) {
+        task testJar(type: Jar) {
+            classifier = 'test'
+            from "$rootDir/LICENSE"
+            from sourceSets.test.output
+        }
+
+        task testSrcJar(type: Jar, dependsOn: testJar) {
+            classifier = 'test-sources'
+            from "$rootDir/LICENSE"
+            from sourceSets.test.allSource
+        }
+
+        artifacts {
+            archives testJar
+            archives testSrcJar
+        }
     }
 }

@@ -1,3 +1,7 @@
+ext {
+    artifactoryURL = "https://artifactory.unifly.aero"
+}
+
 repositories {
     mavenLocal()
     maven {
@@ -10,6 +14,39 @@ repositories {
     maven {
         url "https://plugins.gradle.org/m2/"
     }
+
+    maven {
+        url artifactoryURL + '/artifactory/local_repos'
+        credentials {
+            username = "${artifactoryUser}"
+            password = "${artifactoryPassword}"
+        }
+    }
+
+    maven {
+        url artifactoryURL + '/artifactory/remote-repos'
+        credentials {
+            username = "${artifactoryUser}"
+            password = "${artifactoryPassword}"
+        }
+    }
+
+    maven {
+        url artifactoryURL + '/artifactory/libs-snapshot'
+        credentials {
+            username = "${artifactoryUser}"
+            password = "${artifactoryPassword}"
+        }
+    }
+
+    maven {
+        url artifactoryURL + '/artifactory/libs-release'
+        credentials {
+            username = "${artifactoryUser}"
+            password = "${artifactoryPassword}"
+        }
+    }
+
     jcenter()
     mavenCentral()
 }

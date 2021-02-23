@@ -1,4 +1,4 @@
-package aero.unifly.analytics;
+package com.utopian.analytics.transforms;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -28,7 +28,6 @@ import org.apache.kafka.connect.errors.ConnectException;
 import org.apache.kafka.connect.header.ConnectHeaders;
 import org.apache.kafka.connect.header.Headers;
 import org.apache.kafka.connect.transforms.Transformation;
-import org.apache.kafka.connect.transforms.util.NonEmptyListValidator;
 import org.apache.kafka.connect.transforms.util.SimpleConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -60,10 +59,10 @@ public class SchemaMetaDataTransformer<R extends ConnectRecord<R>> implements Tr
 
     static {
         CONFIG_DEF = (new ConfigDef())
-                .define(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, ConfigDef.Type.STRING, ConfigDef.NO_DEFAULT_VALUE, new NonEmptyListValidator(), ConfigDef.Importance.HIGH, AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_DOC)
+                .define(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, ConfigDef.Type.STRING, ConfigDef.NO_DEFAULT_VALUE, ConfigDef.Importance.HIGH, AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_DOC)
                 .define(AbstractKafkaSchemaSerDeConfig.BASIC_AUTH_CREDENTIALS_SOURCE, ConfigDef.Type.STRING, AbstractKafkaSchemaSerDeConfig.BASIC_AUTH_CREDENTIALS_SOURCE_DEFAULT, ConfigDef.Importance.MEDIUM,
                         AbstractKafkaSchemaSerDeConfig.BASIC_AUTH_CREDENTIALS_SOURCE_DOC)
-                .define(AbstractKafkaSchemaSerDeConfig.USER_INFO_CONFIG, ConfigDef.Type.STRING, AbstractKafkaSchemaSerDeConfig.USER_INFO_DEFAULT, ConfigDef.Importance.MEDIUM, AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_USER_INFO_DOC)
+                .define(AbstractKafkaSchemaSerDeConfig.USER_INFO_CONFIG, ConfigDef.Type.PASSWORD, AbstractKafkaSchemaSerDeConfig.USER_INFO_DEFAULT, ConfigDef.Importance.MEDIUM, AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_USER_INFO_DOC)
                 .define(SCHEMA_CAPACITY_FIELD_NAME, ConfigDef.Type.INT, SCHEMA_CAPACITY_CONFIG_DEFAULT, ConfigDef.Importance.LOW, SCHEMA_CAPACITY_CONFIG_DOC)
                 .define(ADD_HEADERS_PREFIX, ConfigDef.Type.STRING, "", ConfigDef.Importance.LOW, HEADERS_PREFIX_DOC)
         ;
@@ -108,12 +107,13 @@ public class SchemaMetaDataTransformer<R extends ConnectRecord<R>> implements Tr
         final Schema keySchema = record.keySchema();
         final Object value = record.value();
         final Schema valueSchema = record.valueSchema();
+        final Long timestamp = record.timestamp();
 
         if (LOGGER.isDebugEnabled()) {
             LOGGER.debug("topic: {}, key: {}, value: {}, keySchema: {}, valueSchema: {}", topic, key, value, keySchema, valueSchema);
         }
 
-        makeStaticHeaders(record);
+        makeStaticHeaders(topic, key, timestamp).forEach(h -> record.headers().add(h));
         SchemaInfo schemaInfo = null;
         if (key != null) {
             byte[] keyAsBytes = avroKeyConverter.fromConnectData(topic, keySchema, key);
@@ -175,15 +175,16 @@ public class SchemaMetaDataTransformer<R extends ConnectRecord<R>> implements Tr
     /**
      * Create an Headers object which contains all static headers to be added.
      */
-    private Headers makeStaticHeaders(final R record) {
+    private Headers makeStaticHeaders(String topic, Object msgKey, Long timestamp) {
         Headers connectHeaders = new ConnectHeaders();
         final Map<String, Object> headersMap = new HashMap<>();
+
         if (LOGGER.isDebugEnabled()) {
-            LOGGER.debug("Adding to static header map {}:{}, {}:{}", MSG_TOPIC, record.topic(), MSG_KEY, record.key());
+            LOGGER.debug("Adding to header map {}:{}, {}:{}, {}:{}", MSG_TOPIC, topic, MSG_KEY, msgKey, MSG_TIMESTAMP, timestamp);
         }
-        headersMap.put(MSG_TOPIC, record.topic());
-        headersMap.put(MSG_KEY, record.key() == null ? "null" : record.key().toString());
-        headersMap.put(MSG_TIMESTAMP, (record.timestamp() == null) ? 0L : record.timestamp());
+        headersMap.put(MSG_TOPIC, topic);
+        headersMap.put(MSG_KEY, msgKey == null ? "" : msgKey.toString());
+        headersMap.put(MSG_TIMESTAMP, timestamp == null ? 0L : timestamp);
 
         headersMap.forEach((key, value) -> connectHeaders
                 .add(headersPrefix + key, value, SchemaHelper.buildSchemaBuilderForType(value)));
@@ -199,6 +200,7 @@ public class SchemaMetaDataTransformer<R extends ConnectRecord<R>> implements Tr
         Map<String, Object> headersMap = new HashMap<>();
         headersMap.put("MSG_" + prefixKeyOrValue + "_SCHEMA_ID", schemaInfo.id);
         headersMap.put("MSG_" + prefixKeyOrValue + "_SCHEMA_VERSION", schemaInfo.version);
+        headersMap.put("MSG_" + prefixKeyOrValue + "_SUBJECT", schemaInfo.subject);
         headersMap.forEach((key, value) -> connectHeaders
                 .add(headersPrefix + key, value, SchemaHelper.buildSchemaBuilderForType(value)));
 
