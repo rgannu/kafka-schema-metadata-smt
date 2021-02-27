@@ -1,12 +1,16 @@
-= Kafka schema metadata SMT
+= Kafka schema metadata SMT (Single Message Transfer)
 
 This project extracts from the kafka AVRO message kafka schema related information and exposes as headers.
+
+image::kafka-schema-metadata-smt.png[architecture]
 
 A https://docs.confluent.io/platform/current/connect/concepts.html[Kafka Schema metadata Single Message Transformation (SMT)] that reads the serialized https://docs.confluent.io/platform/current/schema-registry/serdes-develop/index.html[wire format header] of Confluent's `KafkaAvroSerializer`, performs a lookup against a source https://github.com/confluentinc/schema-registry[Confluent Schema Registry] for the ID in the message, and queries all the schema metadata of the AVRO message and adds them as headers.
 
 == Schema Metadata Headers
 
-This SMT extracts from the message the metadata of the schema and adds them as headers. Following are the headers:
+This SMT extracts from the message the metadata of the schema and adds them as headers.
+This SMT can be linked to the source/sink kafka connector.
+Following are the headers:
 
 .Schema Metadata Headers
 [%header,cols="1,1a"]
@@ -40,6 +44,19 @@ a|The schema version of the AVRO message value. A new version will created upon 
 a|MSG_VALUE_SUBJECT
 a|The subject name of the message value.
 |===
+
+== Configuration
+
+. Add the kafka schema metadata SMT configuration to the source/sink connector configuration
+[source, json]
+----
+{
+    "transforms": "addSchemaMetadata",
+    "transforms.addSchemaMetadata.type": "com.utopian.analytics.transforms.SchemaMetaDataTransformer",
+    "transforms.addSchemaMetadata.schema.registry.url": "<schema-registry-url>",
+    "transforms.addSchemaMetadata.add.headers.prefix": "<Header prefix (default: blank)>"
+}
+----
 
 == Installation
 
